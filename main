@@ -27,8 +27,8 @@ class NFLPredictorSupabase:
         }
         
         # Supabase setup - ADD YOUR CREDENTIALS HERE
-        self.supabase_url = https://zesgcfngyxgabqhtozry.supabase.co  # Replace with your Supabase URL
-        self.supabase_key = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inplc2djZm5neXhnYWJxaHRvenJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgxNjIzNzIsImV4cCI6MjA3MzczODM3Mn0.SF-27QNEU7KJAA5oyjUEYpef30vseUgCaB-1P0QEM5k  # Replace with your Supabase anon key
+        self.supabase_url = "https://zesgcfngyxgabqhtozry.supabase.co"  # Replace with your Supabase URL
+        self.supabase_key = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inplc2djZm5neXhnYWJxaHRvenJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgxNjIzNzIsImV4cCI6MjA3MzczODM3Mn0.SF-27QNEU7KJAA5oyjUEYpef30vseUgCaB-1P0QEM5k"  # Replace with your Supabase anon key
         
         # Initialize Supabase client
         try:
