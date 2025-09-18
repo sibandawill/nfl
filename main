@@ -1,1 +1,15 @@
-//mian
+# Goal: Collect basic team stats for current season
+
+
+import pandas as pd
+import requests
+import sqlite3
+
+def collect_team_stats():
+
+
+    # Scrape or API call for team offensive/defensive stats
+    pass
+def store_data(data):
+    # Save to SQLite database
+    pass
