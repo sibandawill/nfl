@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
-NFL Game Predictor - Main Script
+NFL Game Predictor with Supabase - Main Script
 Scrapes ESPN data and predicts NFL game winners using machine learning
+Stores data in Supabase database
 """
 
 import requests
@@ -15,19 +16,176 @@ import os
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, classification_report
+from supabase import create_client, Client
 
-class NFLPredictor:
+class NFLPredictorSupabase:
     def __init__(self):
+        # ESPN scraping setup
         self.base_url = "https://www.espn.com/nfl"
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
-        self.teams_data = {}
-        self.games_data = []
+        
+        # Supabase setup - ADD YOUR CREDENTIALS HERE
+        self.supabase_url = "YOUR_SUPABASE_URL"  # Replace with your Supabase URL
+        self.supabase_key = "YOUR_SUPABASE_ANON_KEY"  # Replace with your Supabase anon key
+        
+        # Initialize Supabase client
+        try:
+            self.supabase: Client = create_client(self.supabase_url, self.supabase_key)
+            print("✅ Connected to Supabase")
+        except Exception as e:
+            print(f"❌ Failed to connect to Supabase: {e}")
+            self.supabase = None
+        
+        self.teams_data = pd.DataFrame()
         self.model = None
         
-        # Create data directory if it doesn't exist
-        os.makedirs('data', exist_ok=True)
+        # Create tables if they don't exist
+        self.setup_database()
+    
+    def setup_database(self):
+        """Create necessary tables in Supabase"""
+        print("🔧 Setting up database tables...")
+        
+        # Note: In Supabase, you typically create tables through the dashboard
+        # or using SQL. Here's the SQL you would run in Supabase SQL editor:
+        
+        sql_commands = """
+        -- Create team_stats table
+        CREATE TABLE IF NOT EXISTS team_stats (
+            id SERIAL PRIMARY KEY,
+            team VARCHAR(50) NOT NULL,
+            points_per_game DECIMAL(5,2),
+            points_allowed DECIMAL(5,2),
+            yards_per_game DECIMAL(6,2),
+            yards_allowed DECIMAL(6,2),
+            turnovers DECIMAL(4,2),
+            wins INTEGER,
+            losses INTEGER,
+            created_at TIMESTAMP DEFAULT NOW(),
+            season INTEGER DEFAULT 2024
+        );
+        
+        -- Create predictions table
+        CREATE TABLE IF NOT EXISTS predictions (
+            id SERIAL PRIMARY KEY,
+            home_team VARCHAR(50) NOT NULL,
+            away_team VARCHAR(50) NOT NULL,
+            predicted_winner VARCHAR(50),
+            confidence DECIMAL(5,2),
+            week INTEGER,
+            prediction_date TIMESTAMP DEFAULT NOW(),
+            actual_winner VARCHAR(50),
+            correct_prediction BOOLEAN
+        );
+        
+        -- Create games table
+        CREATE TABLE IF NOT EXISTS games (
+            id SERIAL PRIMARY KEY,
+            home_team VARCHAR(50) NOT NULL,
+            away_team VARCHAR(50) NOT NULL,
+            home_score INTEGER,
+            away_score INTEGER,
+            week INTEGER,
+            season INTEGER DEFAULT 2024,
+            game_date DATE,
+            winner VARCHAR(50)
+        );
+        """
+        
+        print("📋 Run this SQL in your Supabase SQL editor:")
+        print("=" * 50)
+        print(sql_commands)
+        print("=" * 50)
+    
+    def save_team_stats_to_supabase(self, teams_data):
+        """Save team statistics to Supabase"""
+        if not self.supabase:
+            print("❌ No Supabase connection")
+            return False
+        
+        try:
+            print("💾 Saving team stats to Supabase...")
+            
+            # Convert DataFrame to list of dictionaries
+            teams_list = teams_data.to_dict('records')
+            
+            # Insert data into Supabase
+            result = self.supabase.table('team_stats').insert(teams_list).execute()
+            
+            print(f"✅ Saved {len(teams_list)} team stats to Supabase")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error saving team stats: {e}")
+            return False
+    
+    def save_predictions_to_supabase(self, predictions):
+        """Save predictions to Supabase"""
+        if not self.supabase:
+            print("❌ No Supabase connection")
+            return False
+        
+        try:
+            print("💾 Saving predictions to Supabase...")
+            
+            # Convert predictions to the right format
+            predictions_list = []
+            for pred in predictions:
+                predictions_list.append({
+                    'home_team': pred['home_team'],
+                    'away_team': pred['away_team'],
+                    'predicted_winner': pred['predicted_winner'],
+                    'confidence': pred['confidence'],
+                    'week': pred['week']
+                })
+            
+            # Insert into Supabase
+            result = self.supabase.table('predictions').insert(predictions_list).execute()
+            
+            print(f"✅ Saved {len(predictions_list)} predictions to Supabase")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Error saving predictions: {e}")
+            return False
+    
+    def load_team_stats_from_supabase(self):
+        """Load team statistics from Supabase"""
+        if not self.supabase:
+            print("❌ No Supabase connection")
+            return False
+        
+        try:
+            print("📖 Loading team stats from Supabase...")
+            
+            result = self.supabase.table('team_stats').select("*").execute()
+            
+            if result.data:
+                self.teams_data = pd.DataFrame(result.data)
+                print(f"✅ Loaded {len(self.teams_data)} team records from Supabase")
+                return True
+            else:
+                print("⚠️ No team stats found in Supabase")
+                return False
+                
+        except Exception as e:
+            print(f"❌ Error loading team stats: {e}")
+            return False
+    
+    def get_predictions_from_supabase(self):
+        """Get predictions from Supabase"""
+        if not self.supabase:
+            print("❌ No Supabase connection")
+            return []
+        
+        try:
+            result = self.supabase.table('predictions').select("*").order('prediction_date.desc').execute()
+            return result.data
+        except Exception as e:
+            print(f"❌ Error getting predictions: {e}")
+            return []
     
     def scrape_team_stats(self):
         """Scrape team statistics from ESPN"""
@@ -39,10 +197,9 @@ class NFLPredictor:
             response = requests.get(stats_url, headers=self.headers)
             soup = BeautifulSoup(response.content, 'html.parser')
             
-            # This is a simplified version - ESPN's actual structure is more complex
             teams = []
             
-            # For now, let's create sample data structure
+            # NFL teams list
             nfl_teams = [
                 'Arizona Cardinals', 'Atlanta Falcons', 'Baltimore Ravens', 'Buffalo Bills',
                 'Carolina Panthers', 'Chicago Bears', 'Cincinnati Bengals', 'Cleveland Browns',
@@ -55,21 +212,26 @@ class NFLPredictor:
             ]
             
             for team in nfl_teams:
-                # Generate sample stats (in real implementation, scrape from ESPN)
+                # Generate sample stats (replace with real scraping)
                 team_stats = {
                     'team': team,
-                    'points_per_game': np.random.uniform(18, 32),
-                    'points_allowed': np.random.uniform(18, 32),
-                    'yards_per_game': np.random.uniform(300, 450),
-                    'yards_allowed': np.random.uniform(300, 450),
-                    'turnovers': np.random.uniform(-10, 10),
+                    'points_per_game': round(np.random.uniform(18, 32), 2),
+                    'points_allowed': round(np.random.uniform(18, 32), 2),
+                    'yards_per_game': round(np.random.uniform(300, 450), 2),
+                    'yards_allowed': round(np.random.uniform(300, 450), 2),
+                    'turnovers': round(np.random.uniform(-10, 10), 2),
                     'wins': np.random.randint(0, 17),
-                    'losses': np.random.randint(0, 17)
+                    'losses': np.random.randint(0, 17),
+                    'season': 2024
                 }
                 teams.append(team_stats)
             
             self.teams_data = pd.DataFrame(teams)
             print(f"✅ Scraped data for {len(teams)} teams")
+            
+            # Save to Supabase
+            self.save_team_stats_to_supabase(self.teams_data)
+            
             return True
             
         except Exception as e:
@@ -81,10 +243,7 @@ class NFLPredictor:
         print("📅 Scraping upcoming games...")
         
         try:
-            schedule_url = f"{self.base_url}/schedule"
-            response = requests.get(schedule_url, headers=self.headers)
-            
-            # For demo purposes, create sample upcoming games
+            # Sample upcoming games
             upcoming_games = [
                 {'home_team': 'Kansas City Chiefs', 'away_team': 'Buffalo Bills', 'week': 15},
                 {'home_team': 'Dallas Cowboys', 'away_team': 'Philadelphia Eagles', 'week': 15},
@@ -123,10 +282,10 @@ class NFLPredictor:
             return None
     
     def train_model(self):
-        """Train the prediction model with sample data"""
+        """Train the prediction model"""
         print("🤖 Training prediction model...")
         
-        # Create sample training data
+        # Create training data
         training_data = []
         training_labels = []
         
@@ -139,8 +298,7 @@ class NFLPredictor:
             features = self.create_features(home_team, away_team)
             if features:
                 training_data.append(features)
-                # Simple logic: home team wins if they have better overall stats
-                home_advantage = features[0] + features[5] + features[6]  # PPG diff + wins diff + home advantage
+                home_advantage = features[0] + features[5] + features[6]
                 training_labels.append(1 if home_advantage > 0 else 0)
         
         # Train model
@@ -171,7 +329,6 @@ class NFLPredictor:
             
             features = self.create_features(home_team, away_team)
             if features and self.model:
-                # Get prediction and confidence
                 prediction = self.model.predict([features])[0]
                 confidence = self.model.predict_proba([features])[0]
                 
@@ -192,53 +349,50 @@ class NFLPredictor:
                 print(f"   📅 Week: {game['week']}")
                 print("-" * 40)
         
-        # Save predictions
-        predictions_df = pd.DataFrame(predictions)
-        predictions_df.to_csv('data/predictions.csv', index=False)
-        print(f"\n💾 Predictions saved to data/predictions.csv")
+        # Save predictions to Supabase
+        self.save_predictions_to_supabase(predictions)
         
         return predictions
     
-    def save_data(self):
-        """Save scraped data to files"""
-        if not self.teams_data.empty:
-            self.teams_data.to_csv('data/team_stats.csv', index=False)
-            print("💾 Team stats saved to data/team_stats.csv")
-    
     def run_full_prediction(self):
         """Run the complete prediction pipeline"""
-        print("🚀 Starting NFL Prediction System")
-        print("=" * 50)
+        print("🚀 Starting NFL Prediction System with Supabase")
+        print("=" * 60)
         
-        # Step 1: Scrape team stats
-        if not self.scrape_team_stats():
-            return False
+        # Try to load existing data first
+        if not self.load_team_stats_from_supabase():
+            # If no data exists, scrape new data
+            if not self.scrape_team_stats():
+                return False
         
-        # Step 2: Scrape schedule
+        # Scrape schedule
         if not self.scrape_schedule():
             return False
         
-        # Step 3: Train model
+        # Train model
         if not self.train_model():
             return False
         
-        # Step 4: Make predictions
+        # Make predictions
         predictions = self.predict_games()
         
-        # Step 5: Save data
-        self.save_data()
-        
         print("\n✅ Prediction pipeline completed successfully!")
+        print(f"🗄️ Data stored in Supabase database")
+        
         return True
 
 def main():
     """Main function to run the NFL predictor"""
-    predictor = NFLPredictor()
+    print("🔧 Make sure to add your Supabase credentials to the code!")
+    print("🔧 Also run the SQL commands in your Supabase dashboard first!")
+    print()
+    
+    predictor = NFLPredictorSupabase()
     
     try:
         predictor.run_full_prediction()
     except KeyboardInterrupt:
-        print("\n⏹️  Process interrupted by user")
+        print("\n⏹️ Process interrupted by user")
     except Exception as e:
         print(f"\n❌ An error occurred: {e}")
 
